@@ -991,23 +991,7 @@ async function generateReport() {
    └ Avg appeals per day: *${avgAppealsPerDay}*
 • LLM Accepted: *${currentData.acceptedAppeals}* ${acceptanceEmoji} ${acceptanceChange > 0 ? '+' : ''}${acceptanceChange}%`;
 
-        // Add top rules if available
-        if (currentData.ruleMetrics && Object.keys(currentData.ruleMetrics).length > 0) {
-            const topRules = Object.entries(currentData.ruleMetrics)
-                .sort((a, b) => b[1].appeals - a[1].appeals)
-                .slice(0, 5);
-            
-            generatedReport += `
-
-*🎯 Top Appeal Rules:*
-`;
-            topRules.forEach(([rule, metrics], index) => {
-                const acceptanceRate = metrics.appeals > 0 ? ((metrics.accepted / metrics.appeals) * 100).toFixed(0) : 0;
-                generatedReport += `${index + 1}. ${rule}
-   Appeals: *${metrics.appeals}* | Accepted by LLM: *${acceptanceRate}%*
-`;
-            });
-        }
+        // Skip top rules section - removed per user request
 
         // Add high appeal rates section directly (no AI analysis)
         if (currentData.appealRates) {
