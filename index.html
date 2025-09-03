@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Appeal Trends Analyzer</title>
+    <script src="/client/quick.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 30px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        
+        .header h1 {
+            color: #2c3e50;
+            font-size: 2.5em;
+            margin: 0;
+        }
+        
+        .header p {
+            color: #7f8c8d;
+            font-size: 1.2em;
+            margin: 10px 0 0 0;
+        }
+        
+        .status-card {
+            background: #ecf0f1;
+            border-radius: 6px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-left: 4px solid #3498db;
+        }
+        
+        .status-card.success {
+            border-left-color: #27ae60;
+            background: #d5f4e6;
+        }
+        
+        .status-card.error {
+            border-left-color: #e74c3c;
+            background: #fdf2f2;
+        }
+        
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .control-group {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 6px;
+            border: 1px solid #dee2e6;
+        }
+        
+        .control-group h3 {
+            margin: 0 0 15px 0;
+            color: #495057;
+        }
+        
+        button {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background 0.3s;
+            width: 100%;
+        }
+        
+        button:hover {
+            background: #2980b9;
+        }
+        
+        button:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+        }
+        
+        button.success {
+            background: #27ae60;
+        }
+        
+        button.success:hover {
+            background: #229954;
+        }
+        
+        input, select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+        
+        .report-preview {
+            background: #ffffff;
+            border: 1px solid #e8e8e8;
+            border-left: 4px solid #1264a3;
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: 20px;
+            white-space: pre-wrap;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 14px;
+            line-height: 1.4;
+            max-height: 500px;
+            overflow-y: auto;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .report-preview::before {
+            content: "💬 Preview: Slack Message";
+            display: block;
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #6c757d;
+        }
+        
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .metric-card {
+            background: #fff;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            padding: 15px;
+            text-align: center;
+        }
+        
+        .metric-value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        
+        .metric-label {
+            color: #6c757d;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 Appeal Trends Analyzer</h1>
+            <p>AI-powered weekly analysis of fraud appeal trends</p>
+        </div>
+        
+        <div id="status" class="status-card">
+            <strong>Status:</strong> Initializing...
+        </div>
+        
+        <div class="controls">
+            <div class="control-group">
+                <h3>Dashboard Analysis</h3>
+                <button id="fetchDataBtn" onclick="fetchDashboardData()">
+                    📈 Fetch Current Data
+                </button>
+                <button onclick="enableManualDataEntry()" style="background: #f39c12; margin-bottom: 10px;">
+                    🔧 Manual Data Entry
+                </button>
+                <button id="analyzeBtn" onclick="runAnalysis()" disabled>
+                    🤖 Run AI Analysis
+                </button>
+            </div>
+            
+            <div class="control-group">
+                <h3>Report Settings</h3>
+                <label for="slackChannel">Slack Channel/User ID:</label>
+                <input type="text" id="slackChannel" placeholder="e.g., #fraud-team or W02AJD7R7LQ" value="">
+                
+                <label for="reportType">Report Type:</label>
+                <select id="reportType">
+                    <option value="weekly">Weekly Summary</option>
+                    <option value="trends">Trend Analysis</option>
+                    <option value="full">Full Report</option>
+                </select>
+            </div>
+            
+            <div class="control-group">
+                <h3>Actions</h3>
+                <button id="generateBtn" onclick="generateReport()" disabled>
+                    📄 Generate Report
+                </button>
+                <button id="sendBtn" onclick="sendToSlack()" disabled>
+                    💬 Send to Slack
+                </button>
+            </div>
+            
+            <div class="control-group">
+                <h3>Automation</h3>
+                <button id="scheduleBtn" onclick="toggleSchedule()">
+                    ⏰ Enable Weekly Auto-Reports
+                </button>
+                <small>Next scheduled: <span id="nextRun">Not scheduled</span></small>
+            </div>
+        </div>
+        
+        <div id="metricsSection" style="display: none;">
+            <h3>Current Metrics</h3>
+            <div id="metricsGrid" class="metrics-grid"></div>
+        </div>
+        
+        <div id="reportSection" style="display: none;">
+            <h3>Generated Report</h3>
+            <div id="reportPreview" class="report-preview"></div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
