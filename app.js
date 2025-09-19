@@ -1111,11 +1111,20 @@ async function generateReport() {
 
         // Add high appeal rates section directly (no AI analysis)
         if (currentData.appealRates) {
-            const highRateRules = Object.entries(currentData.appealRates)
+            let highRateRules = Object.entries(currentData.appealRates)
                 .filter(([rule, data]) => parseFloat(data.appealRate) > 15 && data.appeals > 5)
-                .sort((a, b) => parseFloat(b[1].appealRate) - parseFloat(a[1].appealRate))
-                .slice(0, 5);
-                
+                .sort((a, b) => parseFloat(b[1].appealRate) - parseFloat(a[1].appealRate));
+
+            // If we don't have at least 3 rules with >15% rate, lower the threshold to get top 3
+            if (highRateRules.length < 3) {
+                highRateRules = Object.entries(currentData.appealRates)
+                    .filter(([rule, data]) => data.appeals > 3) // At least 3 appeals to be meaningful
+                    .sort((a, b) => parseFloat(b[1].appealRate) - parseFloat(a[1].appealRate))
+                    .slice(0, 3);
+            } else {
+                highRateRules = highRateRules.slice(0, 5);
+            }
+
             if (highRateRules.length > 0) {
                 generatedReport += `
 
