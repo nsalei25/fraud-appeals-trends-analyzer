@@ -181,16 +181,81 @@ ORDER BY total_terminations DESC
             maxResults: 1000
         });
         
+        updateStatus('Fetching Shopify Payments appeals data...', 'info');
+
+        // Run the SP appeals query
+        const spAppealsQuery = `
+-- Query for Fraud team tickets that were actioned as Monitor & Reject Shopify Payments
+-- and submitted an appeal within the selected date range
+SELECT
+    tw.trust_platform_ticket_id,
+    tw.subjectable_id as shop_id,
+    DATE(tw.created_at) as ticket_date,
+    tw.status,
+    tw.source,
+    tw.latest_report_type,
+    tw.team,
+    -- Trust Platform Action details (the original SP action)
+    tpa.action_type,
+    DATE(tpa.created_at) as action_date,
+    tpa.trust_platform_action_id,
+    -- Classify action type
+    CASE
+        WHEN tpa.action_type = 'shopify_payments_monitor_reject' THEN 'SP Monitor & Reject'
+        WHEN tpa.action_type = 'reject_shopify_payments' THEN 'SP Reject'
+        WHEN tpa.action_type = 'reject_shopify_payments_with_communications' THEN 'SP Reject with Communications'
+        WHEN tpa.action_type = 'reject_shopify_payments_without_communications' THEN 'SP Reject without Communications'
+        ELSE tpa.action_type
+    END as action_category,
+    -- Dispute/Appeal details
+    tpd.type as dispute_type,
+    tpd.status as dispute_status,
+    DATE(tpd.created_at) as appeal_date,
+    -- Timing analysis
+    DATE_DIFF(DATE(tpd.created_at), DATE(tpa.created_at), DAY) as days_action_to_appeal,
+    -- Source classification
+    'Shopify Payments Rejection Appeal' as source_type
+FROM \`shopify-dw.mart_cti_data.trust_platform_tickets__wide\` tw
+-- Join with SP actions
+INNER JOIN \`shopify-dw.risk.trust_platform_actions\` tpa
+    ON tw.trust_platform_ticket_id = tpa.actionable_id
+    AND tpa.actionable_type = 'Ticket'
+    AND tpa.action_type IN (
+        'shopify_payments_monitor_reject',
+        'reject_shopify_payments',
+        'reject_shopify_payments_with_communications',
+        'reject_shopify_payments_without_communications'
+    )
+-- Join with disputes/appeals
+INNER JOIN \`shopify-dw.risk.trust_platform_disputes\` tpd
+    ON tw.trust_platform_ticket_id = tpd.trust_platform_ticket_id
+    AND tpd.type = 'appeal'
+    AND tpd.created_at > tpa.created_at  -- Appeal came after the action
+WHERE
+    -- Appeals submitted in selected date range
+    DATE(tpd.created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL ${days} DAY)
+    -- Recent tickets (partition filter)
+    AND tw.created_at >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 60 DAY))
+    -- Fraud team only
+    AND tw.team = 'Fraud'
+ORDER BY tpd.created_at DESC
+        `;
+
+        const spAppealsResults = await quick.dw.querySync(spAppealsQuery, [], {
+            timeoutMs: 60000,
+            maxResults: 5000
+        });
+
         // Process the results into structured data
-        currentData = processQueryResults(currentResults, previousResults, terminationResults);
-        
+        currentData = processQueryResults(currentResults, previousResults, terminationResults, spAppealsResults);
+
         // Store in database for historical comparison
         await storeHistoricalData(currentData);
-        
+
         displayMetrics(currentData);
         document.getElementById('analyzeBtn').disabled = false;
         document.getElementById('generateBtn').disabled = false; // Enable report generation after data fetch
-        updateStatus(`Real fraud appeals data loaded successfully (${currentData.totalAppeals} appeals)`, 'success');
+        updateStatus(`Real fraud appeals data loaded successfully (${currentData.totalAppeals} termination appeals, ${currentData.spAppeals || 0} SP appeals)`, 'success');
         
     } catch (error) {
         console.error('Error fetching BigQuery data:', error);
@@ -433,10 +498,11 @@ function analyzeDailyTrends(rawData) {
 }
 
 // Process BigQuery results into structured metrics
-function processQueryResults(currentResults, previousResults, terminationResults) {
+function processQueryResults(currentResults, previousResults, terminationResults, spAppealsResults) {
     const current = currentResults.results || [];
     const previous = previousResults.results || [];
     const terminations = terminationResults.results || [];
+    const spAppeals = spAppealsResults ? spAppealsResults.results || [] : [];
     
     // Calculate current period metrics
     const totalAppeals = current.length;
@@ -565,7 +631,7 @@ function processQueryResults(currentResults, previousResults, terminationResults
     return {
         timestamp: new Date().toISOString(),
         fetchMethod: 'bigquery',
-        
+
         // Basic metrics
         totalAppeals,
         acceptedAppeals,
@@ -574,24 +640,28 @@ function processQueryResults(currentResults, previousResults, terminationResults
         acceptanceRate,
         rejectionRate,
         avgDaysToAppeal,
-        
-        // Comparison metrics  
+
+        // SP Appeals metrics
+        spAppeals: spAppeals.length,
+
+        // Comparison metrics
         previousTotalAppeals,
         previousAcceptedAppeals,
         previousAcceptanceRate,
         appealVolumeChange,
         acceptanceChange,
-        
+
         // Detailed breakdowns
         operationTypes,
         ruleMetrics,
         appealRates,
         countryStats,
-        
+
         // Raw data for AI analysis
         rawCurrentData: current,
         rawPreviousData: previous,
-        rawTerminationData: terminations
+        rawTerminationData: terminations,
+        rawSPAppealsData: spAppeals
     };
 }
 
@@ -987,9 +1057,9 @@ async function generateReport() {
         generatedReport = `*${reportTitle}* | ${new Date().toLocaleDateString()}
 
 *📊 Key Metrics (vs previous week):*
-• Total Appeals: *${currentData.totalAppeals}* ${volumeEmoji} ${volumeChange > 0 ? '+' : ''}${volumeChange}%
-   └ Avg appeals per day: *${avgAppealsPerDay}*
-• LLM Accepted: *${currentData.acceptedAppeals}* ${acceptanceEmoji} ${acceptanceChange > 0 ? '+' : ''}${acceptanceChange}%`;
+• Termination Appeals: *${currentData.totalAppeals}* ${volumeEmoji} ${volumeChange > 0 ? '+' : ''}${volumeChange}%
+   └ LLM Accepted: *${currentData.acceptedAppeals}* ${acceptanceEmoji} ${acceptanceChange > 0 ? '+' : ''}${acceptanceChange}%
+• SP Rejection Appeals: *${currentData.spAppeals || 0}*`;
 
         // Skip top rules section - removed per user request
 
