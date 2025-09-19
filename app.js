@@ -1094,7 +1094,7 @@ async function generateReport() {
         const spAppealsChange = currentData.spAppealsChange;
 
         const volumeEmoji = volumeChange > 0 ? '📈' : volumeChange < 0 ? '📉' : '➡️';
-        const acceptanceEmoji = acceptanceChange > 0 ? '✅' : acceptanceChange < 0 ? '❌' : '➡️';
+        const acceptanceEmoji = acceptanceChange > 0 ? '📈' : acceptanceChange < 0 ? '📉' : '➡️';
         const spAppealsEmoji = spAppealsChange > 0 ? '📈' : spAppealsChange < 0 ? '📉' : '➡️';
         
         // Calculate average appeals per day (7-day period)
@@ -1122,7 +1122,7 @@ async function generateReport() {
                     .sort((a, b) => parseFloat(b[1].appealRate) - parseFloat(a[1].appealRate))
                     .slice(0, 3);
             } else {
-                highRateRules = highRateRules.slice(0, 5);
+                highRateRules = highRateRules.slice(0, 3);
             }
 
             if (highRateRules.length > 0) {
