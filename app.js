@@ -159,7 +159,43 @@ ORDER BY t.appealed_at, t.termination_reason, t.shop_id
             timeoutMs: 60000,
             maxResults: 10000
         });
-        
+
+        updateStatus('Fetching previous period SP appeals data...', 'info');
+
+        // Run the previous period SP appeals query
+        const previousSpAppealsQuery = `
+-- Query for previous period SP appeals
+SELECT
+    tw.trust_platform_ticket_id,
+    tw.subjectable_id as shop_id,
+    DATE(tpd.created_at) as appeal_date
+FROM \`shopify-dw.mart_cti_data.trust_platform_tickets__wide\` tw
+INNER JOIN \`shopify-dw.risk.trust_platform_actions\` tpa
+    ON tw.trust_platform_ticket_id = tpa.actionable_id
+    AND tpa.actionable_type = 'Ticket'
+    AND tpa.action_type IN (
+        'shopify_payments_monitor_reject',
+        'reject_shopify_payments',
+        'reject_shopify_payments_with_communications',
+        'reject_shopify_payments_without_communications'
+    )
+INNER JOIN \`shopify-dw.risk.trust_platform_disputes\` tpd
+    ON tw.trust_platform_ticket_id = tpd.trust_platform_ticket_id
+    AND tpd.type = 'appeal'
+    AND tpd.created_at > tpa.created_at
+WHERE
+    DATE(tpd.created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL ${days * 2} DAY)
+    AND DATE(tpd.created_at) < DATE_SUB(CURRENT_DATE(), INTERVAL ${days} DAY)
+    AND tw.created_at >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 120 DAY))
+    AND tw.team = 'Fraud'
+ORDER BY tpd.created_at DESC
+        `;
+
+        const previousSpAppealsResults = await quick.dw.querySync(previousSpAppealsQuery, [], {
+            timeoutMs: 60000,
+            maxResults: 5000
+        });
+
         updateStatus('Fetching termination counts data...', 'info');
         
         // Run the termination counts query
@@ -247,7 +283,7 @@ ORDER BY tpd.created_at DESC
         });
 
         // Process the results into structured data
-        currentData = processQueryResults(currentResults, previousResults, terminationResults, spAppealsResults);
+        currentData = processQueryResults(currentResults, previousResults, terminationResults, spAppealsResults, previousSpAppealsResults);
 
         // Store in database for historical comparison
         await storeHistoricalData(currentData);
@@ -498,11 +534,12 @@ function analyzeDailyTrends(rawData) {
 }
 
 // Process BigQuery results into structured metrics
-function processQueryResults(currentResults, previousResults, terminationResults, spAppealsResults) {
+function processQueryResults(currentResults, previousResults, terminationResults, spAppealsResults, previousSpAppealsResults) {
     const current = currentResults.results || [];
     const previous = previousResults.results || [];
     const terminations = terminationResults.results || [];
     const spAppeals = spAppealsResults ? spAppealsResults.results || [] : [];
+    const previousSpAppeals = previousSpAppealsResults ? previousSpAppealsResults.results || [] : [];
     
     // Calculate current period metrics
     const totalAppeals = current.length;
@@ -624,10 +661,15 @@ function processQueryResults(currentResults, previousResults, terminationResults
         ? (((totalAppeals - previousTotalAppeals) / previousTotalAppeals) * 100).toFixed(1)
         : 0;
         
-    const acceptanceChange = previousAcceptedAppeals > 0 
+    const acceptanceChange = previousAcceptedAppeals > 0
         ? (((acceptedAppeals - previousAcceptedAppeals) / previousAcceptedAppeals) * 100).toFixed(1)
         : acceptedAppeals > 0 ? "+100" : "0";
-    
+
+    // Calculate SP appeals change
+    const spAppealsChange = previousSpAppeals.length > 0
+        ? (((spAppeals.length - previousSpAppeals.length) / previousSpAppeals.length) * 100).toFixed(1)
+        : spAppeals.length > 0 ? "+100" : "0";
+
     return {
         timestamp: new Date().toISOString(),
         fetchMethod: 'bigquery',
@@ -643,6 +685,8 @@ function processQueryResults(currentResults, previousResults, terminationResults
 
         // SP Appeals metrics
         spAppeals: spAppeals.length,
+        previousSpAppeals: previousSpAppeals.length,
+        spAppealsChange,
 
         // Comparison metrics
         previousTotalAppeals,
@@ -1047,9 +1091,11 @@ async function generateReport() {
         // Format volume and acceptance changes
         const volumeChange = currentData.appealVolumeChange;
         const acceptanceChange = currentData.acceptanceChange;
-        
+        const spAppealsChange = currentData.spAppealsChange;
+
         const volumeEmoji = volumeChange > 0 ? '📈' : volumeChange < 0 ? '📉' : '➡️';
         const acceptanceEmoji = acceptanceChange > 0 ? '✅' : acceptanceChange < 0 ? '❌' : '➡️';
+        const spAppealsEmoji = spAppealsChange > 0 ? '📈' : spAppealsChange < 0 ? '📉' : '➡️';
         
         // Calculate average appeals per day (7-day period)
         const avgAppealsPerDay = Math.round(currentData.totalAppeals / 7);
@@ -1059,7 +1105,7 @@ async function generateReport() {
 *📊 Key Metrics (vs previous week):*
 • Termination Appeals: *${currentData.totalAppeals}* ${volumeEmoji} ${volumeChange > 0 ? '+' : ''}${volumeChange}%
    └ LLM Accepted: *${currentData.acceptedAppeals}* ${acceptanceEmoji} ${acceptanceChange > 0 ? '+' : ''}${acceptanceChange}%
-• SP Rejection Appeals: *${currentData.spAppeals || 0}*`;
+• SP Rejection Appeals: *${currentData.spAppeals || 0}* ${spAppealsEmoji} ${spAppealsChange > 0 ? '+' : ''}${spAppealsChange}%`;
 
         // Skip top rules section - removed per user request
 
